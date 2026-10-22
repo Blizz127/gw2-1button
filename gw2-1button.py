@@ -30,6 +30,7 @@ the loop cycles everything in priority order. Edit ROTATIONS to tune.
 import argparse
 import fcntl
 import os
+import queue
 import select
 import signal
 import struct
@@ -237,8 +238,177 @@ def rotate_forever(rotation, delay):
             time.sleep(delay)
 
 
+class SetupError(RuntimeError):
+    """A prerequisite is missing; the message explains the fix."""
+
+
+class AutoLoop:
+    """The `auto` mode loop, shared by the console command and the window.
+
+    One press of the trigger key arms the rotation and another press disarms
+    it; the window posts "on", "off" or "toggle" for the same effect. Keys are
+    only injected while a supported game is running, and the rotation follows
+    whichever game is up (GW2, GW: Reforged or EQ Legends).
+    """
+
+    def __init__(self, char, key, delay, *, log=print, report=None):
+        self.char = char
+        self.key = key
+        self.delay = delay
+        self.log = log
+        self.report = report
+        self.commands = queue.SimpleQueue()
+        self.stopping = False
+        self.armed = False
+        self.game = None
+        self.rotation = pick_rotation(char, None)
+        self.devices = 0
+        self.last_key = ""
+        self.status = "Stopped."
+        self._published = None
+
+    def post(self, command, value=None):
+        """Queue a command: on, off, toggle, char, key, delay or quit."""
+        self.commands.put((command, value))
+
+    @property
+    def mode(self):
+        if not self.armed:
+            return "off"
+        return "on" if self.game else "waiting"
+
+    def snapshot(self):
+        return {
+            "mode": self.mode,
+            "status": self.status,
+            "game": self.game,
+            "char": self.char,
+            "key": self.key,
+            "delay": self.delay,
+            "rotation": list(self.rotation),
+            "devices": self.devices,
+            "last_key": self.last_key,
+        }
+
+    def publish(self):
+        if self.report is None:
+            return
+        signature = (self.mode, self.status, self.game, self.char, self.key,
+                     self.delay, tuple(self.rotation), self.devices,
+                     self.last_key)
+        if signature != self._published:
+            self._published = signature
+            self.report(self.snapshot())
+
+    def _arm(self, source):
+        self.armed = True
+        self.game = game_running()
+        self.rotation = pick_rotation(self.char, self.game)
+        line = "ON" if self.game else "ON (waiting for the game to start)"
+        self.status = ("Rotation ON." if self.game else
+                       "Rotation ON, waiting for a supported game to start.")
+        self.log(line if source == "key" else f"{line} ({source})")
+
+    def _disarm(self, source):
+        self.armed = False
+        self.status = "Stopped."
+        self.log("OFF" if source == "key" else f"OFF ({source})")
+
+    def run(self, devs=None):
+        """Drive the loop until `stopping` is set or "quit" is posted."""
+        if devs is None:
+            devs = EventDevices()
+        hot = KEY[self.key]
+        idx = 0
+        next_t = 0.0
+        last_check = 0.0
+        self.devices = len(devs.fds)
+        if not self.devices:
+            self.log("warning: no readable /dev/input/event* device; the "
+                     "trigger key will not work until that is fixed (the "
+                     "window buttons still do)")
+        self.publish()
+        while not self.stopping:
+            while True:
+                try:
+                    command, value = self.commands.get_nowait()
+                except queue.Empty:
+                    break
+                if command == "quit":
+                    self.stopping = True
+                elif command == "on" and not self.armed:
+                    self._arm("window")
+                    idx = 0
+                    next_t = 0.0
+                elif command == "off" and self.armed:
+                    self._disarm("window")
+                elif command == "toggle":
+                    if self.armed:
+                        self._disarm("window")
+                    else:
+                        self._arm("window")
+                        idx = 0
+                        next_t = 0.0
+                elif command == "char" and value in ROTATIONS:
+                    self.char = value
+                    self.rotation = pick_rotation(self.char, self.game)
+                    idx = 0
+                    self.log(f"profile {value}: {len(self.rotation)} steps")
+                elif command == "key" and value in KEY:
+                    self.key = value
+                    hot = KEY[value]
+                    self.log(f"trigger key {value}")
+                elif command == "delay" and isinstance(value, (int, float)):
+                    self.delay = float(value)
+            if self.stopping:
+                break
+
+            now = time.monotonic()
+            if now - last_check >= 1.0:
+                new_game = game_running()
+                last_check = now
+                if new_game != self.game:
+                    self.game = new_game
+                    if self.armed:
+                        self.status = ("Rotation ON." if self.game else
+                                       "Rotation ON, waiting for a supported "
+                                       "game to start.")
+                        self.log("game: " + (self.game or "none"))
+                    new_rot = pick_rotation(self.char, self.game)
+                    if new_rot is not self.rotation:
+                        self.rotation = new_rot
+                        idx = 0
+            if not self.armed:
+                timeout = 0.25
+            elif self.game:
+                timeout = min(0.25, max(0.0, next_t - now))
+            else:  # armed but the game is not up yet: idle-poll
+                timeout = 0.2
+            self.publish()
+            events = list(devs.poll(timeout))
+            self.devices = len(devs.fds)
+            now = time.monotonic()
+            if self.armed and self.game and now >= next_t:
+                name = self.rotation[idx % len(self.rotation)]
+                if name != "_":
+                    send_key(KEY[name], EQ_MOD if self.game == "eq" else None)
+                    self.last_key = name
+                idx += 1
+                next_t = now + (EQ_DELAY if self.game == "eq" else self.delay)
+            for typ, code, value in events:
+                if typ != EV_KEY or code != hot or value != 1:
+                    continue
+                idx = 0
+                next_t = 0.0
+                if self.armed:
+                    self._disarm("key")
+                else:
+                    self._arm("key")
+                    last_check = now
+        self.publish()
+
+
 def cmd_auto(args):
-    hot = KEY[args.key]
     devs = EventDevices()
     if not devs.fds:
         sys.exit(NO_INPUT_ERR)
@@ -252,54 +422,15 @@ def cmd_auto(args):
           flush=True)
     print("Rotation runs while GW2 / GW: Reforged / EverQuest is running.",
           flush=True)
-    armed = False
-    idx = 0
-    next_t = 0.0
-    game = game_running()
-    rotation = pick_rotation(args.char, game)
-    last_check = time.monotonic()
-    signal.signal(signal.SIGTERM,
-                  lambda sig, frame: (_ for _ in ()).throw(KeyboardInterrupt))
+    loop = AutoLoop(args.char, args.key, args.delay,
+                    log=lambda line: print(line, flush=True))
+
+    def term(sig, frame):
+        loop.stopping = True
+
+    signal.signal(signal.SIGTERM, term)
     try:
-        while True:
-            now = time.monotonic()
-            if now - last_check >= 1.0:
-                new_game = game_running()
-                last_check = now
-                if new_game != game:
-                    game = new_game
-                    new_rot = pick_rotation(args.char, game)
-                    if new_rot is not rotation:
-                        rotation = new_rot
-                        idx = 0
-            if not armed:
-                timeout = None
-            elif game:
-                timeout = max(0.0, next_t - now)
-            else:  # armed but the game is not up yet: idle-poll
-                timeout = 0.2
-            events = list(devs.poll(timeout))
-            now = time.monotonic()
-            if armed and game and now >= next_t:
-                name = rotation[idx % len(rotation)]
-                if name != "_":
-                    send_key(KEY[name], EQ_MOD if game == "eq" else None)
-                idx += 1
-                next_t = now + (EQ_DELAY if game == "eq" else args.delay)
-            for typ, code, value in events:
-                if typ != EV_KEY or code != hot or value != 1:
-                    continue
-                armed = not armed
-                idx = 0
-                next_t = 0.0
-                if armed:
-                    game = game_running()
-                    rotation = pick_rotation(args.char, game)
-                    last_check = now
-                    print("ON" if game else
-                          "ON (waiting for the game to start)", flush=True)
-                else:
-                    print("OFF", flush=True)
+        loop.run(devs)
     except KeyboardInterrupt:
         print("\nbye")
     finally:

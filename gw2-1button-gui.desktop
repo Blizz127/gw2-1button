@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GW2 1-Button Rotation
+Comment=Guild Wars 2 / GW Reforged / EQ Legends one-button rotation window
+Exec=/home/blizz/Projects/gw2-1button/launch-gw2-gui.sh
+Icon=applications-games
+Terminal=false
+Categories=Game;
+StartupNotify=true
+X-KDE-Autostart-enabled=false
