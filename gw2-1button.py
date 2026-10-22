@@ -142,6 +142,7 @@ def pick_rotation(char, game):
     return ROTATIONS[char] if char in GW2_CHARS else ROTATIONS["any"]
 
 
+# Raw evdev reading: one struct input_event per key press/release.
 # struct input_event: time (sec, usec), type, code, value
 EVENT = struct.Struct("llHHi")
 # EVIOCGNAME(256): _IOC(_IOC_READ, 'E', 0x06, 256) — read a device's name so
