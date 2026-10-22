@@ -1,0 +1,9 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Type=Application
+Name=GW2 1-button macro
+Comment=Guild Wars 2 one-button rotation — press - (or mouse side button) once to start/stop while the game is running
+Exec=/usr/bin/sh -c "exec /usr/bin/python3 /var/home/blizz/gw2-1button.py auto >> /var/home/blizz/.cache/gw2-1button.log 2>&1"
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
