@@ -22,6 +22,18 @@ gw2 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gw2)
 
 GAMES = {"gw2": "Guild Wars 2", "gw1": "Guild Wars: Reforged", "eq": "EverQuest Legends"}
+# Window presets: which game the window is "for" (title, eyebrow, default profile).
+PRESETS = {
+    "gw2": ("GUILD WARS 2  /  ONE BUTTON", "Guild Wars 2 · 1-Button Rotation", "any",
+            "One trigger key. Cycles the skill bar in priority order while the game "
+            "is running. Also drives Guild Wars: Reforged and EQ Legends."),
+    "gw1": ("GUILD WARS: REFORGED  /  ONE BUTTON", "Guild Wars: Reforged · 1-Button Rotation",
+            "monk", "One trigger key. Cycles skill slots 1-8 in order while the original "
+            "Guild Wars client is running. Monk and Mesmer profiles; HP-driven heals are next."),
+    "eq": ("EVERQUEST LEGENDS  /  ONE BUTTON", "EQ Legends · 1-Button Gems", "eq",
+           "One trigger key. Taps spell gems Alt+1..0 with cast-safe 500 ms gaps while "
+           "EverQuest is running."),
+}
 PROFILES = {
     "any": "GW2 · any profession",
     "guardian": "GW2 · Guardian (virtues first)",
@@ -60,17 +72,22 @@ def step_meaning(name: str, char: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--char", choices=sorted(gw2.ROTATIONS), default="any")
+    parser.add_argument("--game", choices=sorted(PRESETS), default="gw2",
+                        help="which game this window is for (title and default profile)")
+    parser.add_argument("--char", choices=sorted(gw2.ROTATIONS), default=None)
     parser.add_argument("--key", choices=sorted(gw2.KEY), default="-")
     parser.add_argument("--delay", type=float, default=0.09,
                         help="seconds between key taps (default 0.09)")
     parser.add_argument("--gui-smoke-test", type=Path,
                         help="render the window to a PNG without opening input devices")
     args = parser.parse_args()
-    run_gui(args.char, args.key, args.delay, args.gui_smoke_test)
+    char = args.char or PRESETS[args.game][2]
+    run_gui(char, args.key, args.delay, args.gui_smoke_test, game=args.game)
 
 
-def run_gui(char: str, key: str, delay: float, smoke_path: Path | None = None) -> None:
+def run_gui(char: str, key: str, delay: float, smoke_path: Path | None = None,
+            *, game: str = "gw2") -> None:
+    eyebrow_text, title_text, _default_char, subtitle_text = PRESETS[game]
     from PySide6.QtCore import QThread, QTimer, Signal
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import (
@@ -102,7 +119,7 @@ def run_gui(char: str, key: str, delay: float, smoke_path: Path | None = None) -
             super().__init__()
             self.worker: Worker | None = None
             self.owns_pidfile = False
-            self.setWindowTitle("Guild Wars 2 · 1-Button Rotation")
+            self.setWindowTitle(title_text)
             self.resize(920, 760)
             body = QWidget()
             self.setCentralWidget(body)
@@ -110,16 +127,13 @@ def run_gui(char: str, key: str, delay: float, smoke_path: Path | None = None) -
             layout.setContentsMargins(24, 20, 24, 20)
             layout.setSpacing(14)
 
-            eyebrow = QLabel("GUILD WARS 2  /  ONE BUTTON")
+            eyebrow = QLabel(eyebrow_text)
             eyebrow.setObjectName("eyebrow")
             layout.addWidget(eyebrow)
-            title = QLabel("1-Button Rotation")
+            title = QLabel(title_text.split(" · ")[-1])
             title.setObjectName("title")
             layout.addWidget(title)
-            subtitle = QLabel(
-                "One trigger key. Cycles the skill bar in priority order while the "
-                "game is running. Also drives Guild Wars: Reforged and EQ Legends."
-            )
+            subtitle = QLabel(subtitle_text)
             subtitle.setObjectName("muted")
             layout.addWidget(subtitle)
 
@@ -344,7 +358,7 @@ def run_gui(char: str, key: str, delay: float, smoke_path: Path | None = None) -
             event.accept()
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("GW2 1-Button Rotation")
+    app.setApplicationName(title_text)
     app.setStyleSheet(STYLE)
     window = Window()
     signal.signal(signal.SIGTERM, lambda *_: window.close())

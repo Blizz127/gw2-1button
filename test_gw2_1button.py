@@ -191,3 +191,16 @@ def test_window_renders_without_opening_input_devices(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert image.stat().st_size > 10_000
+
+
+def test_reforged_window_preset_renders_with_the_monk_profile(tmp_path):
+    pytest.importorskip("PySide6")
+    image = tmp_path / "gw1-window.png"
+    proc = subprocess.run(
+        [sys.executable, str(HERE / "gw2_1button_gui.py"), "--game", "gw1",
+         "--gui-smoke-test", str(image)],
+        capture_output=True, text=True, timeout=60,
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert image.stat().st_size > 10_000

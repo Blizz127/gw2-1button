@@ -51,3 +51,11 @@ the desktop. The login autostart still runs the console `auto` mode; if that
 is running when the window opens, the window shows CONSOLE HELPER RUNNING and
 offers a button to stop it and take over, because two copies would double
 every key.
+
+## Guild Wars: Reforged window
+
+`launch-gw1-gui.sh` opens the same window with the Guild Wars: Reforged
+preset (title, Monk default profile; `gw1-1button-gui.desktop` is installed
+to the application menu and desktop). The profiles `gw1`, `monk` and
+`mesmer` tap slots 1-8 in order; per-build orders and HP-driven heals are the
+next step toward parity with the AION 2 helper.

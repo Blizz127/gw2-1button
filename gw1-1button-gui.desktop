@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GW Reforged 1-Button Rotation
+Comment=Guild Wars: Reforged one-button rotation window (Monk / Mesmer profiles)
+Exec=/home/blizz/Projects/gw2-1button/launch-gw1-gui.sh
+Icon=applications-games
+Terminal=false
+Categories=Game;
+StartupNotify=true
+X-KDE-Autostart-enabled=false
